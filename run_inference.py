@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
-import tensorflow as tf
+#import tensorflow as tf
+import tflite_runtime.interpreter as tflite
 import cv2
 import torch
 import yaml
@@ -200,7 +201,7 @@ def clip_coords(boxes, img_shape):
     boxes[:, 0].clamp_(0, img_shape[1])  # x1
     boxes[:, 1].clamp_(0, img_shape[0])  # y1
     boxes[:, 2].clamp_(0, img_shape[1])  # x2
-    boxes[:, 3].clamp_(0, img_shape[0])  # y2 
+    boxes[:, 3].clamp_(0, img_shape[0])  # y2
 
 def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None):
     # Rescale coords (xyxy) from img1_shape to img0_shape
@@ -321,15 +322,15 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
 def detect(opt):
     source, weights, imgsz = opt.source, opt.weights, opt.img_size
     save_dir = Path('output')
-    weights = weights[0] 
+    weights = weights[0]
     backend = 'tflite'
     save_img = True  # save inference images
     stride = None
-    with open('coco.yaml') as f:
+    with open('../yolov5/data.yaml') as f:
         names = yaml.load(f, Loader=yaml.FullLoader)['names']  # class names (assume COCO)
 
     # Load TFLite model and allocate tensors
-    interpreter = tf.lite.Interpreter(model_path=weights)
+    interpreter = tflite.Interpreter(model_path=weights, num_threads=1)
     interpreter.allocate_tensors()
 
     # Get input and output tensors
@@ -341,10 +342,11 @@ def detect(opt):
     im0s = img
     img = cv2.resize(img, (320,320), interpolation = cv2.INTER_AREA)
     img = img[:, :, ::-1].astype('float32')  # BGR to RGB, to 3x416x416
-    img = np.ascontiguousarray(img)''' 
+    img = np.ascontiguousarray(img)'''
 
     dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=backend == 'pytorch')
     for path, img, im0s, vid_cap in dataset:
+        t0 = time.time()
         img = torch.from_numpy(img)
         img =  img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
@@ -368,13 +370,16 @@ def detect(opt):
         pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, opt.classes, opt.agnostic_nms,
                                     max_det=opt.max_det)
 
+        # Print processing time
+        print("Processing time", time.time() - t0)
+
         # Process detections
         for i, det in enumerate(pred):  # detections per image
             p, s, im0 = path, '', im0s
             p = Path(p)  # to Path
             save_path = str(save_dir / p.name)  # img.jpg
             s += '%gx%g ' % img.shape[2:]  # print string    1,3,320,320
-        
+
             if len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
@@ -394,8 +399,8 @@ def detect(opt):
             # Save results (image with detections)
             if save_img:
                 cv2.imwrite(save_path, im0)
-            
-                
+
+
 
 
 if __name__ == '__main__':
@@ -415,5 +420,5 @@ if __name__ == '__main__':
     parser.add_argument('--hide-conf', default=False, action='store_true', help='hide confidences')
     opt = parser.parse_args()
     opt.img_size *= 2 if len(opt.img_size) == 1 else 1  # expand
-    
+
     detect(opt=opt)
